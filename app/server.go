@@ -9,6 +9,11 @@ import (
 	"os"
 )
 
+var (
+	PING_COMMAND = "ping"
+	ECHO_COMMAND = "echo"
+)
+
 func handleRequest(conn net.Conn) {
 	// Handle the connection
 	defer conn.Close()
@@ -16,15 +21,49 @@ func handleRequest(conn net.Conn) {
 	for {
 		_, err := conn.Read(buf)
 		if err == io.EOF {
-			break
-		} else if err != nil {
-			fmt.Println("Error reading connection: ", err.Error())
-			os.Exit(1)
+			fmt.Println("Connection closed")
+			return
+		}
+		if err != nil {
+			fmt.Println("Error converting command length to int:", err.Error())
+		}
+		command := string(buf)
+		i := 1
+		bukLen := 0
+		for ; command[i] != '\r'; i++ {
+			bukLen = bukLen*10 + int(command[i]-'0')
 		}
 
-		conn.Write([]byte("+PONG\r\n"))
+		commandBuks := parseRedisCommand(command[i+2:])
+		if bukLen == 1 && commandBuks[0] == PING_COMMAND { // Ping command
+			conn.Write([]byte("+PONG\r\n"))
+		} else if bukLen == 2 && commandBuks[0] == ECHO_COMMAND { // Echo command
+			conn.Write([]byte(fmt.Sprintf("+%s\r\n", commandBuks[1])))
+		} else {
+			conn.Write([]byte("-ERR unknown command\r\n"))
+		}
 	}
 
+}
+
+func parseRedisCommand(command string) []string {
+	if len(command) == 0 {
+		return nil
+	}
+	commands := make([]string, 0)
+	if command[0] != '$' {
+		return nil
+	}
+
+	i := 1
+	bukLen := 0
+	for ; command[i] != '\r'; i++ {
+		bukLen = bukLen*10 + int(command[i]-'0')
+	}
+	curCommand := command[i+2 : i+2+bukLen]
+	commands = append(commands, curCommand)
+	restCommand := parseRedisCommand(command[i+2+bukLen+2:])
+	return append(commands, restCommand...)
 }
 
 func main() {
