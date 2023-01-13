@@ -36,14 +36,22 @@ func handleRequest(conn net.Conn) {
 
 		commandBuks := parseRedisCommand(command[i+2:])
 		if bukLen == 1 && commandBuks[0] == PING_COMMAND { // Ping command
-			conn.Write([]byte("+PONG\r\n"))
+			handlePingCommand(conn)
 		} else if bukLen == 2 && commandBuks[0] == ECHO_COMMAND { // Echo command
-			conn.Write([]byte(fmt.Sprintf("+%s\r\n", commandBuks[1])))
+			handleEchoCommand(commandBuks[1], conn)
 		} else {
 			conn.Write([]byte("-ERR unknown command\r\n"))
 		}
 	}
 
+}
+
+func handlePingCommand(conn net.Conn) {
+	conn.Write([]byte("+PONG\r\n"))
+}
+
+func handleEchoCommand(message string, conn net.Conn) {
+	conn.Write([]byte(fmt.Sprintf("+%s\r\n", message)))
 }
 
 func parseRedisCommand(command string) []string {
