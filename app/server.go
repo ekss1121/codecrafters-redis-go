@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"sync"
 
 	// Uncomment this block to pass the first stage
 	"net"
@@ -12,7 +13,18 @@ import (
 var (
 	PING_COMMAND = "ping"
 	ECHO_COMMAND = "echo"
+	SET_COMMAND  = "set"
+	GET_COMMAND  = "get"
 )
+
+type cache struct {
+	Table map[string]string
+	Mu    sync.RWMutex
+}
+
+var localCache = &cache{
+	Table: make(map[string]string),
+}
 
 func handleRequest(conn net.Conn) {
 	// Handle the connection
@@ -21,7 +33,7 @@ func handleRequest(conn net.Conn) {
 	for {
 		_, err := conn.Read(buf)
 		if err == io.EOF {
-			fmt.Println("Connection closed")
+			// fmt.Println("Connection closed")
 			return
 		}
 		if err != nil {
@@ -35,15 +47,42 @@ func handleRequest(conn net.Conn) {
 		}
 
 		commandBuks := parseRedisCommand(command[i+2:])
+		// fmt.Println(commandBuks)
 		if bukLen == 1 && commandBuks[0] == PING_COMMAND { // Ping command
 			handlePingCommand(conn)
 		} else if bukLen == 2 && commandBuks[0] == ECHO_COMMAND { // Echo command
 			handleEchoCommand(commandBuks[1], conn)
+		} else if bukLen == 3 && commandBuks[0] == SET_COMMAND { // Set command
+			handleSetCommand(commandBuks[1], commandBuks[2], conn)
+		} else if bukLen == 2 && commandBuks[0] == GET_COMMAND { // Get command
+			handleGetCommand(commandBuks[1], conn)
 		} else {
 			conn.Write([]byte("-ERR unknown command\r\n"))
 		}
 	}
 
+}
+
+func handleSetCommand(key string, value string, conn net.Conn) {
+	localCache.Mu.Lock()
+	if _, found := localCache.Table[key]; found {
+		fmt.Println("key already exists, update it")
+	}
+	localCache.Table[key] = value
+	localCache.Mu.Unlock()
+	conn.Write([]byte("+OK\r\n"))
+}
+
+func handleGetCommand(key string, conn net.Conn) {
+	localCache.Mu.RLock()
+	if _, found := localCache.Table[key]; !found {
+		localCache.Mu.RUnlock()
+		conn.Write([]byte("$-1\r\n"))
+		return
+	}
+	value := localCache.Table[key]
+	localCache.Mu.RUnlock()
+	conn.Write([]byte(fmt.Sprintf("+%s\r\n", value)))
 }
 
 func handlePingCommand(conn net.Conn) {
